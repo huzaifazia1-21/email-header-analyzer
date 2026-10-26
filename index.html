@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Email Header Analyzer</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Bricolage+Grotesque:opsz,wght@12..96,600&display=swap">
+<style>
+:root{
+  --bg:#f5f4f7;--panel:#ffffff;--ink:#1c1a24;--muted:#625e70;--line:#e0dde8;--accent:#5a3fb0;--accent-soft:#ece7fa;
+  --crit:#b42318;--crit-soft:#fdecea;--warn:#a15c07;--warn-soft:#fdf3e2;--ok:#1d7a46;--ok-soft:#e5f4eb;
+  --display:"Bricolage Grotesque",system-ui,sans-serif;--body:"IBM Plex Sans",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,monospace;
+}
+@media (prefers-color-scheme:dark){:root{--bg:#121118;--panel:#1b1a23;--ink:#ebe9f2;--muted:#a19cb0;--line:#2f2c3b;--accent:#a996f0;--accent-soft:#2a2445;--crit:#f2867b;--crit-soft:#3a1d1b;--warn:#e7b25c;--warn-soft:#352915;--ok:#6fcf97;--ok-soft:#163223;color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 var(--body);padding:24px 16px 40px}
+.wrap{max-width:1040px;margin:0 auto;display:grid;gap:20px}
+h1{font:600 clamp(26px,4vw,34px)/1.1 var(--display);margin:6px 0 0}
+.sub{color:var(--muted);margin:6px 0 0;max-width:66ch}
+.tag{font:500 11px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);background:var(--accent-soft);padding:4px 8px;border-radius:4px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;min-width:0}
+.panel h2{font:600 13px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted);margin:0;padding:14px 16px;border-bottom:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
+textarea{display:block;width:100%;min-height:150px;border:0;border-radius:0 0 10px 10px;padding:14px 16px;font:12.5px/1.55 var(--mono);color:var(--ink);background:var(--panel);resize:vertical}
+textarea:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+.btn{font:600 14px var(--body);border:0;border-radius:6px;padding:8px 14px;background:var(--accent);color:var(--panel);cursor:pointer}
+.btn.ghost{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.btn:disabled{opacity:.5;cursor:default}
+.checks{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;padding:16px;margin:0}
+.check{border:1px solid var(--line);border-radius:8px;padding:12px}
+.check dt{font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.check dd{margin:6px 0 0;font-size:13px;color:var(--muted)}
+.pill{display:inline-block;text-align:center;font:600 12px var(--mono);padding:2px 8px;border-radius:999px;margin-top:6px}
+.pass{background:var(--ok-soft);color:var(--ok)}.fail{background:var(--crit-soft);color:var(--crit)}.warn{background:var(--warn-soft);color:var(--warn)}.none{background:var(--bg);color:var(--muted)}
+.findings{list-style:none;margin:0;padding:0 16px 16px;display:grid;gap:8px}
+.findings li{display:grid;grid-template-columns:64px 1fr;gap:10px;align-items:start;font-size:14px}
+.scroll{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:13px;min-width:640px}
+th,td{text-align:left;padding:9px 16px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:500 11px var(--mono);letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+td.num{font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+td.mono{font-family:var(--mono);word-break:break-all}
+.delay{display:flex;align-items:center;gap:8px}
+.bar{height:6px;border-radius:3px;background:var(--accent);min-width:2px}
+.bar.slow{background:var(--warn)}
+.note{font-size:12px;color:var(--muted)}
+.foot{font-size:12px;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <span class="tag">Demo project · Email troubleshooting</span>
+    <h1>Email Header Analyzer</h1>
+    <p class="sub">Paste the raw headers of an email that bounced, arrived late or landed in spam. The analyzer checks SPF, DKIM and DMARC results and sender alignment, times each server hop, and lists what to fix.</p>
+  </header>
+
+  <section class="panel">
+    <h2><label for="raw">Raw message headers</label><span style="display:flex;gap:8px"><button class="btn ghost" id="loadSample" type="button">Load sample</button><button class="btn" id="run" type="button">Analyze</button></span></h2>
+    <textarea id="raw" spellcheck="false"></textarea>
+  </section>
+
+  <section class="panel">
+    <h2><span>Authentication &amp; alignment</span><span class="note" id="meta"></span></h2>
+    <dl class="checks" id="checks"></dl>
+    <ul class="findings" id="findings"></ul>
+  </section>
+
+  <section class="panel">
+    <h2><span>Delivery path</span><span class="note" id="total"></span></h2>
+    <div class="scroll"><table><thead><tr><th>Hop</th><th>From</th><th>By</th><th>Time (UTC)</th><th>Delay</th></tr></thead><tbody id="hops"></tbody></table></div>
+  </section>
+
+  <p class="foot">Demonstration project. Sample headers use reserved example domains. Everything runs in your browser; nothing is sent anywhere.</p>
+</div>
+
+<script>
+const SAMPLE=`Delivered-To: client@example.org
+Received: by 2002:a05:6a10:8c1:b0:4f2 with SMTP id k1csp221;
+        Tue, 6 Oct 2026 09:14:52 -0700 (PDT)
+Received: from mx.example.org (mx.example.org [198.51.100.20])
+        by inbound.example.org with ESMTPS id 3c1;
+        Tue, 6 Oct 2026 09:14:51 -0700 (PDT)
+Received: from relay2.newhost.example.net (relay2.newhost.example.net [203.0.113.45])
+        by mx.example.org with ESMTP id 9f2;
+        Tue, 6 Oct 2026 09:12:07 -0700 (PDT)
+Received: from app01.example.com (app01.example.com [192.0.2.10])
+        by relay2.newhost.example.net with ESMTPSA id 77a;
+        Tue, 6 Oct 2026 16:12:05 +0000
+Authentication-Results: mx.example.org;
+       dkim=fail (body hash did not verify) header.i=@example.com header.s=old2024 header.b=Qm8x;
+       spf=softfail (domain of transitioning billing@example.com does not designate 203.0.113.45 as permitted sender) smtp.mailfrom=billing@example.com;
+       dmarc=fail (p=QUARANTINE sp=QUARANTINE dis=QUARANTINE) header.from=example.com
+Return-Path: <bounce+8812@mailer.example.net>
+From: Example Co Billing <billing@example.com>
+To: client@example.org
+Subject: Invoice #4471 from Example Co
+Date: Tue, 6 Oct 2026 16:12:04 +0000
+Message-ID: <20261006161204.4471@app01.example.com>
+X-Spam-Status: Yes, score=6.1`;
+
+const $=s=>document.querySelector(s);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+function unfold(raw){
+  const lines=raw.replace(/\r/g,"").split("\n"), out=[];
+  for(const l of lines){ if(/^[ \t]/.test(l)&&out.length) out[out.length-1]+=" "+l.trim(); else if(l.trim()) out.push(l.trim()); }
+  return out.map(l=>{const i=l.indexOf(":");return i>0?{name:l.slice(0,i).trim().toLowerCase(),value:l.slice(i+1).trim()}:null}).filter(Boolean);
+}
+const domainOf=s=>{const m=String(s||"").match(/@([A-Za-z0-9.-]+)/);return m?m[1].toLowerCase():""};
+const orgDomain=d=>d.split(".").slice(-2).join(".");
+
+function analyze(raw){
+  const h=unfold(raw), get=n=>h.filter(x=>x.name===n).map(x=>x.value);
+  const auth=get("authentication-results").join("; ");
+  const res=k=>{const m=auth.match(new RegExp("\\b"+k+"=(\\w+)","i"));return m?m[1].toLowerCase():"none"};
+  const reason=k=>{const m=auth.match(new RegExp("\\b"+k+"=\\w+\\s*\\(([^)]*)\\)","i"));return m?m[1]:""};
+  const from=get("from")[0]||"", rp=get("return-path")[0]||"";
+  const fromD=domainOf(from), rpD=domainOf(rp);
+  const dkimD=(auth.match(/header\.(?:i|d)=@?([A-Za-z0-9.-]+)/i)||[])[1]||"";
+  const spf={r:res("spf"),why:reason("spf")}, dkim={r:res("dkim"),why:reason("dkim")}, dmarc={r:res("dmarc"),why:reason("dmarc")};
+  const spfAligned=!!fromD&&!!rpD&&orgDomain(fromD)===orgDomain(rpD);
+  const dkimAligned=!!fromD&&!!dkimD&&orgDomain(fromD)===orgDomain(dkimD.toLowerCase());
+  const hops=get("received").reverse().map(v=>{
+    const fromM=v.match(/from\s+(\S+)/i), byM=v.match(/by\s+(\S+)/i), dt=v.split(";").pop().trim();
+    const t=Date.parse(dt.replace(/\s*\([^)]*\)\s*$/,""));
+    return {from:fromM?fromM[1]:"(local)",by:byM?byM[1]:"",t:isNaN(t)?null:t};
+  });
+  hops.forEach((x,i)=>{x.delay=i&&x.t&&hops[i-1].t?Math.max(0,(x.t-hops[i-1].t)/1000):null});
+  const findings=[];
+  if(dmarc.r==="fail"){const p=(dmarc.why.match(/p=(\w+)/i)||[])[1]; findings.push(["fail",`DMARC failed and the domain policy is ${p?p.toLowerCase():"set"}, so receiving servers are told to ${p&&/reject/i.test(p)?"reject this mail":"send this mail to spam"}.`])}
+  if(dkim.r!=="pass") findings.push([dkim.r==="none"?"warn":"fail",`DKIM ${dkim.r}${dkim.why?` (${dkim.why})`:""}. ${/s=old|selector/i.test(auth)?"The signature uses selector \""+((auth.match(/header\.s=(\S+?);?\s/)||[])[1]||"")+"\", which may be from the previous mail host. ":""}Check that the sending service signs with a key published in DNS for ${fromD||"the From domain"}.`]);
+  if(spf.r!=="pass") findings.push([spf.r==="none"?"warn":"fail",`SPF ${spf.r}: the server that sent this mail${(spf.why.match(/\d+\.\d+\.\d+\.\d+/)||[""])[0]?" ("+spf.why.match(/\d+\.\d+\.\d+\.\d+/)[0]+")":""} is not listed in the SPF record. Add the new mail host's include or IP to the SPF TXT record.`]);
+  if(!spfAligned&&rpD) findings.push(["warn",`Return-Path domain (${rpD}) does not match the From domain (${fromD}), so SPF cannot count toward DMARC even if it passes. Configure a custom return-path / bounce domain on ${fromD}.`]);
+  const slow=hops.filter(x=>x.delay>120);
+  if(slow.length) findings.push(["warn",`Delivery was delayed ${Math.round(Math.max(...slow.map(x=>x.delay))/60)} min at ${slow.map(x=>x.by).join(", ")}, which often indicates greylisting or spam filtering on the receiving side.`]);
+  const spam=get("x-spam-status")[0]; if(spam&&/^yes/i.test(spam)) findings.push(["fail",`The receiving server marked the message as spam (${spam}).`]);
+  if(!findings.length) findings.push(["pass","Authentication passed and the delivery path looks normal."]);
+  return {spf,dkim,dmarc,spfAligned,dkimAligned,fromD,rpD,dkimD,hops,findings,subject:get("subject")[0]||""};
+}
+const cls=r=>r==="pass"?"pass":r==="none"?"none":/soft|neutral|temperror/.test(r)?"warn":"fail";
+function fmtDelay(s){if(s==null)return"—";return s<60?s+" s":Math.round(s/60)+" min"}
+function render(r){
+  $("#meta").textContent=r.subject?`“${r.subject}”`:"";
+  $("#checks").innerHTML=[["SPF",r.spf.r,r.spf.why],["DKIM",r.dkim.r,r.dkim.why],["DMARC",r.dmarc.r,r.dmarc.why],["DMARC alignment",(r.spf.r==="pass"&&r.spfAligned)||(r.dkim.r==="pass"&&r.dkimAligned)?"pass":"fail",`From: ${r.fromD||"?"} · Return-Path: ${r.rpD||"?"} · DKIM d=: ${r.dkimD||"?"}`]]
+    .map(([k,v,w])=>`<div class="check"><dt>${k}</dt><span class="pill ${cls(v)}">${esc(v)}</span><dd>${esc(w||"No detail in header")}</dd></div>`).join("");
+  $("#findings").innerHTML=r.findings.map(([s,t])=>`<li><span class="pill ${s}">${s==="pass"?"OK":s==="warn"?"CHECK":"FIX"}</span><span>${esc(t)}</span></li>`).join("");
+  const max=Math.max(1,...r.hops.map(h=>h.delay||0));
+  $("#hops").innerHTML=r.hops.map((h,i)=>`<tr><td class="num">${i+1}</td><td class="mono">${esc(h.from)}</td><td class="mono">${esc(h.by)}</td><td class="num">${h.t?new Date(h.t).toISOString().slice(11,19):"—"}</td><td><span class="delay"><span class="bar ${h.delay>120?"slow":""}" style="width:${h.delay?Math.max(2,Math.round(h.delay/max*120)):0}px"></span><span class="num">${fmtDelay(h.delay)}</span></span></td></tr>`).join("");
+  const ts=r.hops.filter(h=>h.t).map(h=>h.t);
+  $("#total").textContent=ts.length>1?`Total transit ${fmtDelay((ts[ts.length-1]-ts[0])/1000)} across ${r.hops.length} hops`:"";
+}
+$("#run").onclick=()=>{const v=$("#raw").value.trim();if(!v){$("#raw").focus();return}render(analyze(v))};
+$("#loadSample").onclick=()=>{$("#raw").value=SAMPLE;render(analyze(SAMPLE))};
+$("#raw").value=SAMPLE;render(analyze(SAMPLE));
+</script>
+</body>
+</html>
